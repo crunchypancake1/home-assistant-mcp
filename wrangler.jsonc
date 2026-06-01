@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ha-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "HA_MCP", "class_name": "HomeAssistantMCP" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HomeAssistantMCP"] }],
+  "vars": {
+    "HA_URL": "https://ha.example.com"
+  },
+  "workers_dev": true,
+  "routes": [{ "pattern": "ha-mcp.crunchypancake.com", "custom_domain": true }],
+  "observability": {
+    "logs": { "enabled": true, "invocation_logs": true }
+  }
+}
