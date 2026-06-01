@@ -23,8 +23,15 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         },
       },
       async ({ domain }) => {
-        const states = await client.getStates(domain);
-        return { content: [{ type: "text" as const, text: JSON.stringify(states) }] };
+        try {
+          const states = await client.getStates(domain);
+          return { content: [{ type: "text" as const, text: JSON.stringify(states) }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
       },
     );
 
@@ -36,6 +43,7 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         inputSchema: {
           entity_id: z
             .string()
+            .min(1)
             .describe("Entity ID (e.g. 'light.living_room', 'sensor.temperature')"),
         },
       },
@@ -72,12 +80,19 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         },
       },
       async ({ domain, service, service_data }) => {
-        const affected = await client.callService(domain, service, service_data ?? {});
-        const text =
-          affected.length === 0
-            ? `Service ${domain}.${service} called successfully (no affected entities returned).`
-            : JSON.stringify(affected);
-        return { content: [{ type: "text" as const, text }] };
+        try {
+          const affected = await client.callService(domain, service, service_data ?? {});
+          const text =
+            affected.length === 0
+              ? `Service ${domain}.${service} called successfully (no affected entities returned).`
+              : JSON.stringify(affected);
+          return { content: [{ type: "text" as const, text }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
       },
     );
 
@@ -89,8 +104,15 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         inputSchema: {},
       },
       async () => {
-        const areas = await client.listAreas();
-        return { content: [{ type: "text" as const, text: JSON.stringify(areas) }] };
+        try {
+          const areas = await client.listAreas();
+          return { content: [{ type: "text" as const, text: JSON.stringify(areas) }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
       },
     );
   }

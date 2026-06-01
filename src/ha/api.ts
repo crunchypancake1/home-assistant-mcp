@@ -57,6 +57,10 @@ export class HomeAssistantClient {
     });
     if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText} on /api/template`);
     const text = await res.text();
-    return JSON.parse(text) as HaArea[];
+    try {
+      return JSON.parse(text) as HaArea[];
+    } catch {
+      throw new Error(`HA template error: ${text}`);
+    }
   }
 }
