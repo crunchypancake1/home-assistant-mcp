@@ -10,14 +10,17 @@ export class HomeAssistantMCP extends McpAgent<Env> {
   async init(): Promise<void> {
     const client = new HomeAssistantClient(this.env.HA_URL, this.env.HA_TOKEN);
 
-    this.server.tool(
+    this.server.registerTool(
       "get_entities",
-      "List Home Assistant entity states, optionally filtered by domain (e.g. 'light', 'switch', 'sensor').",
       {
-        domain: z
-          .string()
-          .optional()
-          .describe("Entity domain to filter by (e.g. 'light', 'sensor', 'switch')"),
+        description:
+          "List Home Assistant entity states, optionally filtered by domain (e.g. 'light', 'switch', 'sensor').",
+        inputSchema: {
+          domain: z
+            .string()
+            .optional()
+            .describe("Entity domain to filter by (e.g. 'light', 'sensor', 'switch')"),
+        },
       },
       async ({ domain }) => {
         const states = await client.getStates(domain);
@@ -25,13 +28,16 @@ export class HomeAssistantMCP extends McpAgent<Env> {
       },
     );
 
-    this.server.tool(
+    this.server.registerTool(
       "get_entity_state",
-      "Get the full state and attributes of a specific Home Assistant entity.",
       {
-        entity_id: z
-          .string()
-          .describe("Entity ID (e.g. 'light.living_room', 'sensor.temperature')"),
+        description:
+          "Get the full state and attributes of a specific Home Assistant entity.",
+        inputSchema: {
+          entity_id: z
+            .string()
+            .describe("Entity ID (e.g. 'light.living_room', 'sensor.temperature')"),
+        },
       },
       async ({ entity_id }) => {
         const state = await client.getEntityState(entity_id);
@@ -45,22 +51,25 @@ export class HomeAssistantMCP extends McpAgent<Env> {
       },
     );
 
-    this.server.tool(
+    this.server.registerTool(
       "call_service",
-      "Call a Home Assistant service (e.g. turn lights on/off, lock a door). Pass service_data directly to HA.",
       {
-        domain: z
-          .string()
-          .describe("Service domain (e.g. 'light', 'switch', 'homeassistant')"),
-        service: z
-          .string()
-          .describe("Service name (e.g. 'turn_on', 'turn_off', 'toggle')"),
-        service_data: z
-          .record(z.unknown())
-          .optional()
-          .describe(
-            "Service data payload (e.g. { entity_id: 'light.living_room', brightness: 128 })",
-          ),
+        description:
+          "Call a Home Assistant service (e.g. turn lights on/off, lock a door). Pass service_data directly to HA.",
+        inputSchema: {
+          domain: z
+            .string()
+            .describe("Service domain (e.g. 'light', 'switch', 'homeassistant')"),
+          service: z
+            .string()
+            .describe("Service name (e.g. 'turn_on', 'turn_off', 'toggle')"),
+          service_data: z
+            .record(z.unknown())
+            .optional()
+            .describe(
+              "Service data payload (e.g. { entity_id: 'light.living_room', brightness: 128 })",
+            ),
+        },
       },
       async ({ domain, service, service_data }) => {
         const affected = await client.callService(domain, service, service_data ?? {});
@@ -72,10 +81,13 @@ export class HomeAssistantMCP extends McpAgent<Env> {
       },
     );
 
-    this.server.tool(
+    this.server.registerTool(
       "list_areas",
-      "List all configured areas (rooms) in Home Assistant.",
-      {},
+      {
+        description:
+          "List all configured areas (rooms) in Home Assistant.",
+        inputSchema: {},
+      },
       async () => {
         const areas = await client.listAreas();
         return { content: [{ type: "text" as const, text: JSON.stringify(areas) }] };
