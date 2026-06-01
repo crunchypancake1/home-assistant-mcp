@@ -11,25 +11,25 @@ export class HomeAssistantClient {
     return fetch(url, {
       ...init,
       headers: {
+        ...(init.headers ?? {}),
         "Authorization": `Bearer ${this.token}`,
         "Content-Type": "application/json",
-        ...(init.headers ?? {}),
       },
     });
   }
 
   async getStates(domain?: string): Promise<HaState[]> {
     const res = await this.doFetch("/api/states");
-    if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText}`);
+    if (!res.ok) throw new Error(`HA API error: ${res.status} on /api/states`);
     const states = await res.json() as HaState[];
     if (!domain) return states;
     return states.filter((s) => s.entity_id.startsWith(`${domain}.`));
   }
 
   async getEntityState(entityId: string): Promise<HaState | null> {
-    const res = await this.doFetch(`/api/states/${entityId}`);
+    const res = await this.doFetch(`/api/states/${encodeURIComponent(entityId)}`);
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText}`);
+    if (!res.ok) throw new Error(`HA API error: ${res.status} on /api/states/${encodeURIComponent(entityId)}`);
     return res.json() as Promise<HaState>;
   }
 
@@ -38,11 +38,11 @@ export class HomeAssistantClient {
     service: string,
     serviceData: Record<string, unknown> = {},
   ): Promise<HaState[]> {
-    const res = await this.doFetch(`/api/services/${domain}/${service}`, {
+    const res = await this.doFetch(`/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`, {
       method: "POST",
       body: JSON.stringify(serviceData),
     });
-    if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText}`);
+    if (!res.ok) throw new Error(`HA API error: ${res.status} on /api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`);
     return res.json() as Promise<HaState[]>;
   }
 
@@ -52,7 +52,7 @@ export class HomeAssistantClient {
       method: "POST",
       body: JSON.stringify({ template }),
     });
-    if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText}`);
+    if (!res.ok) throw new Error(`HA API error: ${res.status} on /api/template`);
     const text = await res.text();
     return JSON.parse(text) as HaArea[];
   }
