@@ -91,6 +91,18 @@ describe("HomeAssistantClient", () => {
       );
       await expect(client.getEntityState("light.living")).rejects.toThrow("HA API error: 401");
     });
+
+    it("encodes special characters in entityId to prevent path traversal", async () => {
+      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response("Not Found", { status: 404 })
+      );
+
+      await client.getEntityState("../config");
+
+      const [url] = spy.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("%2F");
+      expect(url).not.toContain("../");
+    });
   });
 
   describe("callService", () => {
@@ -126,6 +138,18 @@ describe("HomeAssistantClient", () => {
         new Response("Service not found", { status: 404 })
       );
       await expect(client.callService("light", "nonexistent", {})).rejects.toThrow("HA API error: 404");
+    });
+
+    it("encodes special characters in domain and service to prevent path traversal", async () => {
+      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify([]), { status: 200 })
+      );
+
+      await client.callService("../config", "auth/providers", {});
+
+      const [url] = spy.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("%2F");
+      expect(url).not.toContain("../");
     });
   });
 
