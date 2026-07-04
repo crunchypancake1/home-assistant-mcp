@@ -5,6 +5,8 @@ import { HomeAssistantClient } from "./ha/api";
 import { PHONE_COMMANDS } from "./ha/phone-commands";
 import type { Env } from "./types";
 
+const PHONE_COMMAND_NAMES = PHONE_COMMANDS.map((c) => c.command) as [string, ...string[]];
+
 export class HomeAssistantMCP extends McpAgent<Env> {
   server = new McpServer({ name: "Home Assistant", version: "1.0.0" });
 
@@ -290,7 +292,7 @@ export class HomeAssistantMCP extends McpAgent<Env> {
       },
       async () => {
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(PHONE_COMMANDS) }],
+          content: [{ type: "text" as const, text: JSON.stringify(PHONE_COMMANDS, null, 2) }],
         };
       },
     );
@@ -303,13 +305,12 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         inputSchema: {
           notify_service: z
             .string()
-            .min(1)
+            .regex(/^mobile_app_/, "must start with 'mobile_app_' (e.g. 'mobile_app_pixel_8')")
             .describe(
               "The notify service name for the target device, e.g. 'mobile_app_pixel_8'. Found via get_entities with domain 'notify'.",
             ),
           command: z
-            .string()
-            .min(1)
+            .enum(PHONE_COMMAND_NAMES)
             .describe("The command to send, e.g. 'command_dnd'. See phone_list_capabilities for the full list."),
           command_data: z
             .record(z.unknown())
