@@ -1,4 +1,4 @@
-import type { HaArea, HaState } from "../types";
+import type { HaArea, HaHistoryEntry, HaState } from "../types";
 
 export class HomeAssistantClient {
   constructor(
@@ -47,6 +47,19 @@ export class HomeAssistantClient {
     });
     if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText} on /api/services/${encodedDomain}/${encodedService}`);
     return res.json() as Promise<HaState[]>;
+  }
+
+  async getEntityHistory(entityId: string, hoursBack = 24): Promise<HaHistoryEntry[]> {
+    const end = new Date();
+    const start = new Date(end.getTime() - hoursBack * 60 * 60 * 1000);
+    const startIso = start.toISOString();
+    const endIso = end.toISOString();
+    const encodedId = encodeURIComponent(entityId);
+    const path = `/api/history/period/${encodeURIComponent(startIso)}?filter_entity_id=${encodedId}&end_time=${encodeURIComponent(endIso)}&minimal_response=true&no_attributes=true`;
+    const res = await this.doFetch(path);
+    if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText} on /api/history/period`);
+    const data = await res.json() as HaHistoryEntry[][];
+    return data[0] ?? [];
   }
 
   async listAreas(): Promise<HaArea[]> {

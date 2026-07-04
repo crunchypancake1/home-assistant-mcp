@@ -222,5 +222,37 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         }
       },
     );
+
+    this.server.registerTool(
+      "get_entity_history",
+      {
+        description:
+          "Get the recent state history for a Home Assistant entity. Returns a list of state changes with timestamps. Useful for questions like 'how long has the light been on' or 'when did the door last open'.",
+        inputSchema: {
+          entity_id: z
+            .string()
+            .min(1)
+            .describe("Entity ID to query history for (e.g. 'light.living_room')"),
+          hours_back: z
+            .number()
+            .int()
+            .min(1)
+            .max(168)
+            .optional()
+            .describe("How many hours of history to retrieve (default: 24, max: 168)"),
+        },
+      },
+      async ({ entity_id, hours_back }) => {
+        try {
+          const history = await client.getEntityHistory(entity_id, hours_back ?? 24);
+          return { content: [{ type: "text" as const, text: JSON.stringify(history) }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
+      },
+    );
   }
 }

@@ -16,3 +16,9 @@ export interface HaArea {
   area_id: string;
   name: string;
 }
+
+export interface HaHistoryEntry {
+  entity_id: string;
+  state: string;
+  last_changed: string;
+}

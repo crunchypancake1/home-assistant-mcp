@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { HomeAssistantClient } from "../src/ha/api";
-import type { HaState } from "../src/types";
+import type { HaState, HaHistoryEntry } from "../src/types";
 
 const BASE_URL = "https://ha.example.com";
 const TOKEN = "test-token";
@@ -181,6 +181,35 @@ describe("HomeAssistantClient", () => {
         new Response("Error", { status: 500 })
       );
       await expect(client.listAreas()).rejects.toThrow("HA API error: 500");
+    });
+  });
+
+  describe("getEntityHistory", () => {
+    it("fetches history for an entity with correct URL", async () => {
+      const entry: HaHistoryEntry = {
+        entity_id: "light.living",
+        state: "on",
+        last_changed: "2026-01-01T00:00:00+00:00",
+      };
+      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify([[entry]]), { status: 200 })
+      );
+
+      const history = await client.getEntityHistory("light.living", 24);
+
+      const [url] = spy.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("/api/history/period/");
+      expect(url).toContain("filter_entity_id=light.living");
+      expect(url).toContain("minimal_response=true");
+      expect(history).toHaveLength(1);
+      expect(history[0]?.state).toBe("on");
+    });
+
+    it("throws on non-ok response", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response("Error", { status: 500 })
+      );
+      await expect(client.getEntityHistory("light.living", 1)).rejects.toThrow("HA API error: 500");
     });
   });
 });
