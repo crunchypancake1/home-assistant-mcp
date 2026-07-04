@@ -150,7 +150,7 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         inputSchema: {
           entity_id: z
             .string()
-            .min(1)
+            .regex(/^automation\./, "entity_id must be an automation entity (e.g. 'automation.good_morning')")
             .describe("Automation entity ID (e.g. 'automation.good_morning')"),
         },
       },
