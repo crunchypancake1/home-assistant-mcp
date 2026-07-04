@@ -115,5 +115,61 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         }
       },
     );
+
+    this.server.registerTool(
+      "list_automations",
+      {
+        description:
+          "List all automations in Home Assistant with their ID, friendly name, state (on/off), and last triggered time.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const states = await client.getStates("automation");
+          const automations = states.map((s) => ({
+            entity_id: s.entity_id,
+            name: (s.attributes["friendly_name"] as string | undefined) ?? s.entity_id,
+            enabled: s.state === "on",
+            last_triggered: (s.attributes["last_triggered"] as string | undefined) ?? null,
+          }));
+          return { content: [{ type: "text" as const, text: JSON.stringify(automations) }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
+      },
+    );
+
+    this.server.registerTool(
+      "trigger_automation",
+      {
+        description:
+          "Trigger a Home Assistant automation by entity ID, bypassing any conditions.",
+        inputSchema: {
+          entity_id: z
+            .string()
+            .min(1)
+            .describe("Automation entity ID (e.g. 'automation.good_morning')"),
+        },
+      },
+      async ({ entity_id }) => {
+        try {
+          await client.callService("automation", "trigger", {
+            entity_id,
+            skip_condition: true,
+          });
+          return {
+            content: [{ type: "text" as const, text: `Automation ${entity_id} triggered.` }],
+          };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
+      },
+    );
   }
 }
