@@ -201,6 +201,8 @@ describe("HomeAssistantClient", () => {
       expect(url).toContain("/api/history/period/");
       expect(url).toContain("filter_entity_id=light.living");
       expect(url).toContain("minimal_response=true");
+      expect(url).toContain("no_attributes=true");
+      expect(url).toContain("end_time=");
       expect(history).toHaveLength(1);
       expect(history[0]?.state).toBe("on");
     });
