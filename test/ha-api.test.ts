@@ -228,7 +228,7 @@ describe("HomeAssistantClient", () => {
       expect(url).toBe("https://ha.example.com/api/template");
       expect(init.method).toBe("POST");
       const body = JSON.parse(init.body as string);
-      expect(body.template).toContain("bedroom");
+      expect(body.template).toContain("area_entities('bedroom')");
       expect(entities).toEqual(["light.bedroom_lamp", "switch.bedroom_fan"]);
     });
 
@@ -244,6 +244,16 @@ describe("HomeAssistantClient", () => {
         new Response("Template error: unknown area", { status: 200 })
       );
       await expect(client.getEntitiesByArea("no_such_area")).rejects.toThrow("HA template error");
+    });
+
+    it("escapes single quotes in the area ID to prevent template injection", async () => {
+      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response("[]", { status: 200 })
+      );
+      await client.getEntitiesByArea("it's");
+      const body = JSON.parse((spy.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.template).toContain("it\\'s");
+      expect(body.template).not.toContain("it's");
     });
   });
 });
