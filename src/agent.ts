@@ -287,7 +287,7 @@ export class HomeAssistantMCP extends McpAgent<Env> {
       "phone_list_capabilities",
       {
         description:
-          "List all available phone commands that can be sent via Home Assistant's mobile app notification service. Returns a manifest describing each command and its parameters. Use get_entities with domain 'notify' to find available device targets.",
+          "List all available phone commands that can be sent via Home Assistant's mobile app notification service. Returns a manifest describing each command and its parameters. The notify service name follows the pattern 'mobile_app_<device_name>' matching how the device is named in the HA companion app — ask the user for their device name if unknown.",
         inputSchema: {},
       },
       async () => {
@@ -301,13 +301,13 @@ export class HomeAssistantMCP extends McpAgent<Env> {
       "phone_send_command",
       {
         description:
-          "Send a command to a phone via the Home Assistant mobile app notification service. Use phone_list_capabilities to see available commands and their parameters. Use get_entities with domain 'notify' to find available device service names (they start with 'mobile_app_').",
+          "Send a command to a phone via the Home Assistant mobile app notification service. Use phone_list_capabilities to see available commands and their parameters. The service name follows the pattern 'mobile_app_<device_name>' — ask the user for their device name if unknown.",
         inputSchema: {
           notify_service: z
             .string()
             .regex(/^mobile_app_/, "must start with 'mobile_app_' (e.g. 'mobile_app_pixel_8')")
             .describe(
-              "The notify service name for the target device, e.g. 'mobile_app_pixel_8'. Found via get_entities with domain 'notify'.",
+              "The notify service name for the target device, e.g. 'mobile_app_pixel_8'. Follows the pattern 'mobile_app_<device_name>' from the HA companion app.",
             ),
           command: z
             .enum(PHONE_COMMAND_NAMES)
