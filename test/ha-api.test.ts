@@ -214,4 +214,36 @@ describe("HomeAssistantClient", () => {
       await expect(client.getEntityHistory("light.living", 1)).rejects.toThrow("HA API error: 500");
     });
   });
+
+  describe("getEntitiesByArea", () => {
+    it("POSTs a template and returns entity IDs for the given area", async () => {
+      const rendered = JSON.stringify(["light.bedroom_lamp", "switch.bedroom_fan"]);
+      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(rendered, { status: 200 })
+      );
+
+      const entities = await client.getEntitiesByArea("bedroom");
+
+      const [url, init] = spy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("https://ha.example.com/api/template");
+      expect(init.method).toBe("POST");
+      const body = JSON.parse(init.body as string);
+      expect(body.template).toContain("bedroom");
+      expect(entities).toEqual(["light.bedroom_lamp", "switch.bedroom_fan"]);
+    });
+
+    it("throws on non-ok response", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response("Error", { status: 500 })
+      );
+      await expect(client.getEntitiesByArea("bedroom")).rejects.toThrow("HA API error: 500");
+    });
+
+    it("throws on invalid template response", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response("Template error: unknown area", { status: 200 })
+      );
+      await expect(client.getEntitiesByArea("no_such_area")).rejects.toThrow("HA template error");
+    });
+  });
 });

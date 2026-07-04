@@ -254,5 +254,30 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         }
       },
     );
+
+    this.server.registerTool(
+      "get_entities_by_area",
+      {
+        description:
+          "Get all entity IDs that belong to a specific area (room) in Home Assistant. Use list_areas first to find the area_id. Useful before issuing room-wide commands.",
+        inputSchema: {
+          area_id: z
+            .string()
+            .min(1)
+            .describe("Area ID as returned by list_areas (e.g. 'living_room', 'bedroom')"),
+        },
+      },
+      async ({ area_id }) => {
+        try {
+          const entities = await client.getEntitiesByArea(area_id);
+          return { content: [{ type: "text" as const, text: JSON.stringify(entities) }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
+      },
+    );
   }
 }

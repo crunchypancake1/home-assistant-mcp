@@ -62,6 +62,21 @@ export class HomeAssistantClient {
     return data[0] ?? [];
   }
 
+  async getEntitiesByArea(areaId: string): Promise<string[]> {
+    const template = `{{ area_entities('${areaId.replace(/'/g, "\\'")}') | list | tojson }}`;
+    const res = await this.doFetch("/api/template", {
+      method: "POST",
+      body: JSON.stringify({ template }),
+    });
+    if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText} on /api/template`);
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as string[];
+    } catch {
+      throw new Error(`HA template error: ${text}`);
+    }
+  }
+
   async listAreas(): Promise<HaArea[]> {
     const template = `{{ [{"area_id": a, "name": area_name(a)} for a in areas()] | tojson }}`;
     const res = await this.doFetch("/api/template", {
