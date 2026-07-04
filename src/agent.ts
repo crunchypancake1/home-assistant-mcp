@@ -2,6 +2,7 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { HomeAssistantClient } from "./ha/api";
+import { PHONE_COMMANDS } from "./ha/phone-commands";
 import type { Env } from "./types";
 
 export class HomeAssistantMCP extends McpAgent<Env> {
@@ -271,6 +272,65 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         try {
           const entities = await client.getEntitiesByArea(area_id);
           return { content: [{ type: "text" as const, text: JSON.stringify(entities) }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
+      },
+    );
+
+    this.server.registerTool(
+      "phone_list_capabilities",
+      {
+        description:
+          "List all available phone commands that can be sent via Home Assistant's mobile app notification service. Returns a manifest describing each command and its parameters. Use get_entities with domain 'notify' to find available device targets.",
+        inputSchema: {},
+      },
+      async () => {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(PHONE_COMMANDS) }],
+        };
+      },
+    );
+
+    this.server.registerTool(
+      "phone_send_command",
+      {
+        description:
+          "Send a command to a phone via the Home Assistant mobile app notification service. Use phone_list_capabilities to see available commands and their parameters. Use get_entities with domain 'notify' to find available device service names (they start with 'mobile_app_').",
+        inputSchema: {
+          notify_service: z
+            .string()
+            .min(1)
+            .describe(
+              "The notify service name for the target device, e.g. 'mobile_app_pixel_8'. Found via get_entities with domain 'notify'.",
+            ),
+          command: z
+            .string()
+            .min(1)
+            .describe("The command to send, e.g. 'command_dnd'. See phone_list_capabilities for the full list."),
+          command_data: z
+            .record(z.unknown())
+            .optional()
+            .describe("Command-specific parameters as a key-value object. See phone_list_capabilities for each command's params."),
+        },
+      },
+      async ({ notify_service, command, command_data }) => {
+        try {
+          await client.callService("notify", notify_service, {
+            message: command,
+            data: command_data ?? {},
+          });
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Command ${command} sent to ${notify_service}.`,
+              },
+            ],
+          };
         } catch (err) {
           return {
             content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
