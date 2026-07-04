@@ -171,5 +171,56 @@ export class HomeAssistantMCP extends McpAgent<Env> {
         }
       },
     );
+
+    this.server.registerTool(
+      "list_scripts",
+      {
+        description:
+          "List all scripts in Home Assistant with their ID, friendly name, and current running state.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const states = await client.getStates("script");
+          const scripts = states.map((s) => ({
+            entity_id: s.entity_id,
+            name: (s.attributes["friendly_name"] as string | undefined) ?? s.entity_id,
+            running: s.state === "on",
+          }));
+          return { content: [{ type: "text" as const, text: JSON.stringify(scripts) }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
+      },
+    );
+
+    this.server.registerTool(
+      "run_script",
+      {
+        description: "Run a Home Assistant script by entity ID.",
+        inputSchema: {
+          entity_id: z
+            .string()
+            .regex(/^script\./, "entity_id must be a script entity (e.g. 'script.goodnight_routine')")
+            .describe("Script entity ID (e.g. 'script.goodnight_routine')"),
+        },
+      },
+      async ({ entity_id }) => {
+        try {
+          await client.callService("script", "turn_on", { entity_id });
+          return {
+            content: [{ type: "text" as const, text: `Script ${entity_id} started.` }],
+          };
+        } catch (err) {
+          return {
+            content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          };
+        }
+      },
+    );
   }
 }
