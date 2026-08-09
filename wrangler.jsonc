@@ -12,7 +12,9 @@
     "HA_URL": "https://home.crunchypancake.com"
   },
   "workers_dev": true,
-  "routes": [{ "pattern": "home-assistant-mcp.crunchypancake.com", "custom_domain": true }],
+  "routes": [
+   { "pattern": "home.crunchypancake.com/mcp", "zone_name": "crunchypancake.com" }
+  ],
   "observability": {
     "logs": { "enabled": true, "invocation_logs": true }
   }
