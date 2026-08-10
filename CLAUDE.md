@@ -28,7 +28,7 @@ This is a **Cloudflare Workers MCP server** that exposes Home Assistant as an MC
 ### Runtime environment
 
 - `HA_URL` is set as a `vars` entry in `wrangler.jsonc` (points to `https://home.crunchypancake.com`).
-- `HA_TOKEN` must be set as a Wrangler secret (`wrangler secret put HA_TOKEN`).
+- `HA_TOKEN` is a Secrets Store binding (`secrets_store_secrets` in `wrangler.jsonc`), pointing at the `home-assistant-token` secret in the account's Secrets Store. It's an async binding — read via `await env.HA_TOKEN.get()` (done once in `agent.ts#init`), not a plain string like a `vars` entry.
 - The Durable Object is declared with `new_sqlite_classes` (migration tag `v1`).
 - Route: `home.crunchypancake.com/mcp` (zone `crunchypancake.com`).
 

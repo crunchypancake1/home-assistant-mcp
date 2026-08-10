@@ -11,7 +11,8 @@ export class HomeAssistantMCP extends McpAgent<Env> {
   server = new McpServer({ name: "Home Assistant", version: "1.0.0" });
 
   async init(): Promise<void> {
-    const client = new HomeAssistantClient(this.env.HA_URL, this.env.HA_TOKEN);
+    const token = await this.env.HA_TOKEN.get();
+    const client = new HomeAssistantClient(this.env.HA_URL, token);
 
     this.server.registerTool(
       "get_entities",

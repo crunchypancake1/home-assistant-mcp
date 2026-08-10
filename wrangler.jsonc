@@ -11,6 +11,13 @@
   "vars": {
     "HA_URL": "https://home.crunchypancake.com"
   },
+  "secrets_store_secrets": [
+    {
+      "binding": "HA_TOKEN",
+      "store_id": "d947ac5bb8ef4800ac46fc59128a1a09",
+      "secret_name": "home-assistant-token"
+    }
+  ],
   "workers_dev": true,
   "routes": [
    { "pattern": "home.crunchypancake.com/mcp", "zone_name": "crunchypancake.com" }

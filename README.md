@@ -45,11 +45,31 @@ Jinja template instead.
 
 ```bash
 npm install
-wrangler secret put HA_TOKEN   # long-lived access token from HA
 ```
 
 `HA_URL` is set in `wrangler.jsonc` under `vars` — point it at your own Home
 Assistant instance before deploying.
+
+`HA_TOKEN` (a long-lived access token from HA) is read from Cloudflare's
+[Secrets Store](https://developers.cloudflare.com/secrets-store/), not a
+plain Wrangler secret. Create it once per account and it's reusable across
+Workers:
+
+```bash
+wrangler secrets-store secret create <store-id> \
+  --name home-assistant-token --scopes workers --remote
+```
+
+`wrangler.jsonc` then binds it via `secrets_store_secrets`:
+
+```jsonc
+"secrets_store_secrets": [
+  { "binding": "HA_TOKEN", "store_id": "<store-id>", "secret_name": "home-assistant-token" }
+]
+```
+
+For local dev, create a local-only secret with the same name (omit
+`--remote`) so `wrangler dev` has something to read.
 
 ## Development
 
@@ -69,8 +89,8 @@ npm run deploy
 ```
 
 Or connect this repository to a Cloudflare Worker for git-based deploys.
-Either way, `HA_TOKEN` must be set as a Wrangler secret in the target
-environment — it is never stored in the repo.
+Either way, the `home-assistant-token` secret must exist in the account's
+Secrets Store — it is never stored in the repo.
 
 ## Stack
 

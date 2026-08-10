@@ -1,7 +1,7 @@
 export interface Env {
   HA_MCP: DurableObjectNamespace;
   HA_URL: string;
-  HA_TOKEN: string;
+  HA_TOKEN: SecretsStoreSecret;
 }
 
 export interface HaState {
