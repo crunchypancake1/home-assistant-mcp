@@ -18,7 +18,8 @@ export class HomeAssistantMCP extends McpAgent<Env> {
       "get_entities",
       {
         description:
-          "List Home Assistant entity states, optionally filtered by domain (e.g. 'light', 'switch', 'sensor').",
+          "List Home Assistant entity states, optionally filtered by domain (e.g. 'light', 'switch', 'sensor'). " +
+          "Without a domain filter, 'update' entities (firmware/software version notices) are omitted — pass domain: 'update' to see them.",
         inputSchema: {
           domain: z
             .string()

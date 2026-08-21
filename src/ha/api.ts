@@ -1,5 +1,15 @@
 import type { HaArea, HaHistoryEntry, HaState } from "../types";
 
+/**
+ * Domains that are pure diagnostic noise for a voice assistant — never
+ * something you'd ask to control or check by voice — so they're dropped from
+ * an unfiltered getStates() call. `update` entities exist only to say "a new
+ * firmware/software version is available"; every instance costs tokens in the
+ * tool_result (uncached, unlike the tool schemas) for zero practical value.
+ * Still reachable by requesting the domain explicitly.
+ */
+const NOISY_DOMAINS = ["update"];
+
 export class HomeAssistantClient {
   constructor(
     private readonly baseUrl: string,
@@ -22,8 +32,10 @@ export class HomeAssistantClient {
     const res = await this.doFetch("/api/states");
     if (!res.ok) throw new Error(`HA API error: ${res.status} ${res.statusText} on /api/states`);
     const states = await res.json() as HaState[];
-    if (!domain) return states;
-    return states.filter((s) => s.entity_id.startsWith(`${domain}.`));
+    if (domain) return states.filter((s) => s.entity_id.startsWith(`${domain}.`));
+    return states.filter(
+      (s) => !NOISY_DOMAINS.some((noisy) => s.entity_id.startsWith(`${noisy}.`)),
+    );
   }
 
   async getEntityState(entityId: string): Promise<HaState | null> {

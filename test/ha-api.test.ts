@@ -63,6 +63,36 @@ describe("HomeAssistantClient", () => {
       );
       await expect(client.getStates()).rejects.toThrow("HA API error: 403");
     });
+
+    it("excludes noisy domains (e.g. update) when no domain filter is given", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            makeState("light.living"),
+            makeState("update.hacs"),
+            makeState("update.frontend"),
+          ]),
+          { status: 200 }
+        )
+      );
+
+      const states = await client.getStates();
+      expect(states).toHaveLength(1);
+      expect(states[0]?.entity_id).toBe("light.living");
+    });
+
+    it("still returns update entities when explicitly requested", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([makeState("light.living"), makeState("update.hacs")]),
+          { status: 200 }
+        )
+      );
+
+      const states = await client.getStates("update");
+      expect(states).toHaveLength(1);
+      expect(states[0]?.entity_id).toBe("update.hacs");
+    });
   });
 
   describe("getEntityState", () => {
