@@ -18,7 +18,7 @@
       "secret_name": "home-assistant-token"
     }
   ],
-  "workers_dev": true,
+  "workers_dev": false,
   "routes": [
    { "pattern": "home.crunchypancake.com/mcp", "zone_name": "crunchypancake.com" }
   ],
