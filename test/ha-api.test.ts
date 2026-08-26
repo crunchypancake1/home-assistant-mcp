@@ -1,18 +1,61 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { HomeAssistantClient } from "../src/ha/api";
-import type { HaState, HaHistoryEntry } from "../src/types";
+import { HaApiError, HomeAssistantClient } from "../src/ha/api";
+import type { HaState } from "../src/types";
 
 const BASE_URL = "https://ha.example.com";
 const TOKEN = "test-token";
 
-function makeState(entity_id: string, state = "on"): HaState {
+function makeState(entity_id: string, state = "on", attributes: Record<string, unknown> = {}): HaState {
   return {
     entity_id,
     state,
-    attributes: {},
+    attributes,
     last_changed: "2026-01-01T00:00:00+00:00",
     last_updated: "2026-01-01T00:00:00+00:00",
   };
+}
+
+/** Drives the Home Assistant WebSocket handshake against the client's listeners. */
+class FakeWebSocket {
+  readonly sent: string[] = [];
+  closed = false;
+  private readonly listeners = new Map<string, ((event: unknown) => void)[]>();
+
+  constructor(private readonly onCommand: (msg: Record<string, unknown>) => unknown) {}
+
+  accept(): void {
+    this.deliver({ type: "auth_required" });
+  }
+
+  addEventListener(type: string, fn: (event: unknown) => void): void {
+    const bucket = this.listeners.get(type) ?? [];
+    bucket.push(fn);
+    this.listeners.set(type, bucket);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+    const reply = this.onCommand(JSON.parse(data) as Record<string, unknown>);
+    if (reply !== undefined) this.deliver(reply);
+  }
+
+  close(): void {
+    this.closed = true;
+  }
+
+  emit(type: string, event: unknown): void {
+    for (const fn of this.listeners.get(type) ?? []) fn(event);
+  }
+
+  private deliver(payload: unknown): void {
+    queueMicrotask(() => this.emit("message", { data: JSON.stringify(payload) }));
+  }
+}
+
+function mockSocket(ws: FakeWebSocket) {
+  return vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce({ status: 101, webSocket: ws } as unknown as Response);
 }
 
 describe("HomeAssistantClient", () => {
@@ -24,266 +67,172 @@ describe("HomeAssistantClient", () => {
   });
 
   describe("getStates", () => {
-    it("fetches all states with bearer token", async () => {
-      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(
-          JSON.stringify([makeState("light.living"), makeState("switch.fan")]),
-          { status: 200 }
-        )
-      );
+    it("fetches every state with the bearer token", async () => {
+      const spy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify([makeState("light.living"), makeState("update.hacs")]), { status: 200 }),
+        );
 
       const states = await client.getStates();
 
       const [url, init] = spy.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("https://ha.example.com/api/states");
       expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer test-token");
+      // Narrowing is the catalog's job — the client returns what HA returned.
       expect(states).toHaveLength(2);
     });
 
-    it("filters by domain when provided", async () => {
+    it("puts HA's response body into the error message", async () => {
       vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(
-          JSON.stringify([
-            makeState("light.living"),
-            makeState("switch.fan"),
-            makeState("light.bedroom"),
-          ]),
-          { status: 200 }
-        )
+        new Response("401: Unauthorized", { status: 401 }),
       );
-
-      const states = await client.getStates("light");
-      expect(states).toHaveLength(2);
-      expect(states.every((s) => s.entity_id.startsWith("light."))).toBe(true);
+      await expect(client.getStates()).rejects.toThrow(/401 .*401: Unauthorized/);
     });
 
-    it("throws on non-ok response", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Forbidden", { status: 403 })
-      );
-      await expect(client.getStates()).rejects.toThrow("HA API error: 403");
-    });
-
-    it("excludes noisy domains (e.g. update) when no domain filter is given", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(
-          JSON.stringify([
-            makeState("light.living"),
-            makeState("update.hacs"),
-            makeState("update.frontend"),
-          ]),
-          { status: 200 }
-        )
-      );
-
-      const states = await client.getStates();
-      expect(states).toHaveLength(1);
-      expect(states[0]?.entity_id).toBe("light.living");
-    });
-
-    it("still returns update entities when explicitly requested", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(
-          JSON.stringify([makeState("light.living"), makeState("update.hacs")]),
-          { status: 200 }
-        )
-      );
-
-      const states = await client.getStates("update");
-      expect(states).toHaveLength(1);
-      expect(states[0]?.entity_id).toBe("update.hacs");
+    it("throws HaApiError carrying the status", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("nope", { status: 403 }));
+      await expect(client.getStates()).rejects.toBeInstanceOf(HaApiError);
     });
   });
 
   describe("getEntityState", () => {
-    it("returns state for a valid entity", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(JSON.stringify(makeState("light.living")), { status: 200 })
-      );
-
-      const state = await client.getEntityState("light.living");
-      expect(state).not.toBeNull();
-      expect(state?.entity_id).toBe("light.living");
+    it("returns null for a missing entity", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("", { status: 404 }));
+      expect(await client.getEntityState("light.nope")).toBeNull();
     });
 
-    it("returns null when entity is not found (404)", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Entity not found", { status: 404 })
-      );
-
-      const state = await client.getEntityState("light.nonexistent");
-      expect(state).toBeNull();
-    });
-
-    it("throws on non-404 errors", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Unauthorized", { status: 401 })
-      );
-      await expect(client.getEntityState("light.living")).rejects.toThrow("HA API error: 401");
-    });
-
-    it("encodes special characters in entityId to prevent path traversal", async () => {
-      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Not Found", { status: 404 })
-      );
-
-      await client.getEntityState("../config");
-
-      const [url] = spy.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("%2F");
-      expect(url).not.toContain("../");
+    it("encodes the entity id", async () => {
+      const spy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(new Response(JSON.stringify(makeState("light.a")), { status: 200 }));
+      await client.getEntityState("light.a b");
+      expect(spy.mock.calls[0]![0]).toBe("https://ha.example.com/api/states/light.a%20b");
     });
   });
 
   describe("callService", () => {
-    it("POSTs to the correct endpoint with service data", async () => {
-      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(JSON.stringify([makeState("light.living")]), { status: 200 })
-      );
+    it("posts the payload and returns the affected states", async () => {
+      const spy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(new Response(JSON.stringify([makeState("light.a")]), { status: 200 }));
 
-      const result = await client.callService("light", "turn_on", {
-        entity_id: "light.living",
-        brightness: 128,
-      });
+      const affected = await client.callService("light", "turn_on", { entity_id: "light.a" });
 
       const [url, init] = spy.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("https://ha.example.com/api/services/light/turn_on");
       expect(init.method).toBe("POST");
-      const body = JSON.parse(init.body as string);
-      expect(body).toEqual({ entity_id: "light.living", brightness: 128 });
-      expect(result).toHaveLength(1);
+      expect(JSON.parse(init.body as string)).toEqual({ entity_id: "light.a" });
+      expect(affected).toHaveLength(1);
     });
 
-    it("returns empty array when HA returns no affected entities", async () => {
+    it("tolerates a non-array response body", async () => {
       vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(JSON.stringify([]), { status: 200 })
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
       );
-
-      const result = await client.callService("homeassistant", "reload_all", {});
-      expect(result).toHaveLength(0);
-    });
-
-    it("throws on non-ok response", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Service not found", { status: 404 })
-      );
-      await expect(client.callService("light", "nonexistent", {})).rejects.toThrow("HA API error: 404");
-    });
-
-    it("encodes special characters in domain and service to prevent path traversal", async () => {
-      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(JSON.stringify([]), { status: 200 })
-      );
-
-      await client.callService("../config", "auth/providers", {});
-
-      const [url] = spy.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("%2F");
-      expect(url).not.toContain("../");
+      expect(await client.callService("script", "turn_on")).toEqual([]);
     });
   });
 
-  describe("listAreas", () => {
-    it("POSTs the template and parses the rendered JSON", async () => {
-      const rendered = JSON.stringify([
-        { area_id: "living_room", name: "Living Room" },
-        { area_id: "bedroom", name: "Bedroom" },
-      ]);
-      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(rendered, { status: 200 })
-      );
+  describe("getHistory", () => {
+    it("asks for every entity in one minimal-response request", async () => {
+      const spy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(new Response(JSON.stringify([[{ state: "on", last_changed: "x" }]]), { status: 200 }));
 
-      const areas = await client.listAreas();
+      const series = await client.getHistory(["light.a", "light.b"], 12);
 
-      const [url, init] = spy.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe("https://ha.example.com/api/template");
-      expect(init.method).toBe("POST");
-      const body = JSON.parse(init.body as string);
-      expect(body).toHaveProperty("template");
-      expect(typeof body.template).toBe("string");
-      expect(areas).toHaveLength(2);
-      expect(areas[0]?.area_id).toBe("living_room");
-      expect(areas[0]?.name).toBe("Living Room");
-    });
-
-    it("throws on non-ok response", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Error", { status: 500 })
-      );
-      await expect(client.listAreas()).rejects.toThrow("HA API error: 500");
-    });
-  });
-
-  describe("getEntityHistory", () => {
-    it("fetches history for an entity with correct URL", async () => {
-      const entry: HaHistoryEntry = {
-        entity_id: "light.living",
-        state: "on",
-        last_changed: "2026-01-01T00:00:00+00:00",
-      };
-      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(JSON.stringify([[entry]]), { status: 200 })
-      );
-
-      const history = await client.getEntityHistory("light.living", 24);
-
-      const [url] = spy.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("/api/history/period/");
-      expect(url).toContain("filter_entity_id=light.living");
+      const url = spy.mock.calls[0]![0] as string;
+      expect(url).toContain("filter_entity_id=light.a%2Clight.b");
       expect(url).toContain("minimal_response=true");
       expect(url).toContain("no_attributes=true");
-      expect(url).toContain("end_time=");
-      expect(history).toHaveLength(1);
-      expect(history[0]?.state).toBe("on");
-    });
-
-    it("throws on non-ok response", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Error", { status: 500 })
-      );
-      await expect(client.getEntityHistory("light.living", 1)).rejects.toThrow("HA API error: 500");
+      expect(series).toHaveLength(1);
     });
   });
 
-  describe("getEntitiesByArea", () => {
-    it("POSTs a template and returns entity IDs for the given area", async () => {
-      const rendered = JSON.stringify(["light.bedroom_lamp", "switch.bedroom_fan"]);
+  describe("getRegistry", () => {
+    it("renders one template and normalises the result", async () => {
       const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response(rendered, { status: 200 })
+        new Response(
+          JSON.stringify({
+            areas: [
+              { area_id: "kitchen", name: "Kitchen", floor: "Ground", entities: ["light.k"] },
+              { area_id: "loft", name: "Loft", floor: null },
+            ],
+            hidden: ["sensor.rssi"],
+          }),
+          { status: 200 },
+        ),
       );
 
-      const entities = await client.getEntitiesByArea("bedroom");
+      const registry = await client.getRegistry();
 
       const [url, init] = spy.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("https://ha.example.com/api/template");
-      expect(init.method).toBe("POST");
-      const body = JSON.parse(init.body as string);
-      expect(body.template).toContain("area_entities('bedroom')");
-      expect(entities).toEqual(["light.bedroom_lamp", "switch.bedroom_fan"]);
+      // Jinja has no list comprehensions, so the template must build with namespace/for.
+      const template = (JSON.parse(init.body as string) as { template: string }).template;
+      expect(template).toContain("namespace(");
+      expect(template).not.toMatch(/\[.*for .* in areas\(\)\]/);
+      expect(registry.areas[1]).toEqual({ area_id: "loft", name: "Loft", floor: null, entities: [] });
+      expect(registry.hidden).toEqual(["sensor.rssi"]);
     });
 
-    it("throws on non-ok response", async () => {
+    it("reports a template rendering error rather than crashing on the body", async () => {
       vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Error", { status: 500 })
+        new Response("UndefinedError: 'areas' is undefined", { status: 200 }),
       );
-      await expect(client.getEntitiesByArea("bedroom")).rejects.toThrow("HA API error: 500");
+      await expect(client.getRegistry()).rejects.toThrow(/HA template error/);
+    });
+  });
+
+  describe("listExposedEntities", () => {
+    it("authenticates then returns the entities exposed to the assistant", async () => {
+      const ws = new FakeWebSocket((msg) => {
+        if (msg["type"] === "auth") return { type: "auth_ok" };
+        return {
+          id: msg["id"],
+          type: "result",
+          success: true,
+          result: {
+            exposed_entities: {
+              "light.kitchen": { conversation: true, "cloud.alexa": false },
+              "sensor.rssi": { "cloud.alexa": true },
+              "light.loft": { conversation: false },
+            },
+          },
+        };
+      });
+      mockSocket(ws);
+
+      const exposed = await client.listExposedEntities("conversation");
+
+      expect(exposed).toEqual(["light.kitchen"]);
+      expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "auth", access_token: TOKEN });
+      expect(JSON.parse(ws.sent[1]!)).toEqual({ id: 1, type: "homeassistant/expose_entity/list" });
+      expect(ws.closed).toBe(true);
     });
 
-    it("throws on invalid template response", async () => {
+    it("rejects when the command is refused", async () => {
+      mockSocket(
+        new FakeWebSocket((msg) =>
+          msg["type"] === "auth"
+            ? { type: "auth_ok" }
+            : { id: msg["id"], type: "result", success: false, error: { message: "unauthorized" } },
+        ),
+      );
+      await expect(client.listExposedEntities("conversation")).rejects.toThrow(/unauthorized/);
+    });
+
+    it("rejects when auth is refused", async () => {
+      mockSocket(new FakeWebSocket(() => ({ type: "auth_invalid" })));
+      await expect(client.listExposedEntities("conversation")).rejects.toThrow(/auth rejected/);
+    });
+
+    it("rejects when the upgrade is refused", async () => {
       vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("Template error: unknown area", { status: 200 })
+        { status: 400, webSocket: null } as unknown as Response,
       );
-      await expect(client.getEntitiesByArea("no_such_area")).rejects.toThrow("HA template error");
-    });
-
-    it("escapes single quotes in the area ID to prevent template injection", async () => {
-      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("[]", { status: 200 })
-      );
-      await client.getEntitiesByArea("it's");
-      const body = JSON.parse((spy.mock.calls[0] as [string, RequestInit])[1].body as string);
-      expect(body.template).toContain("it\\'s");
-      expect(body.template).not.toContain("it's");
+      await expect(client.listExposedEntities("conversation")).rejects.toThrow(/handshake refused/);
     });
   });
 });

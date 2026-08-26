@@ -7,39 +7,77 @@ can read entity states, call services, run scripts and automations, and send
 commands to phones via the HA companion app — all against your own Home
 Assistant instance.
 
+The tool surface is built for a model rather than for the REST API: results
+are scoped to the entities you exposed to your voice assistant, rendered as
+one compact line per entity grouped by room, and every entity argument
+accepts a friendly name as readily as an `entity_id`.
+
 ## How it works
 
 ```
 MCP client ──HTTP/SSE──► Worker (/mcp) ──► HomeAssistantMCP (Durable Object)
                                                     │
+                                             EntityCatalog
+                                                    │
                                           HomeAssistantClient
                                                     │
-                                      Home Assistant REST API (Bearer auth)
+                     HA REST API + /api/websocket (long-lived token)
 ```
 
 `HomeAssistantMCP` is a [`McpAgent`](https://github.com/cloudflare/agents)
-hosted on a Durable Object; each tool call goes through `HomeAssistantClient`,
-a thin wrapper around the HA REST API that handles auth, path-safe entity
-IDs, and error normalization. Areas have no dedicated REST endpoint in HA, so
-`listAreas` / `getEntitiesByArea` go through `/api/template` with a small
-Jinja template instead.
+hosted on a Durable Object. `EntityCatalog` sits between the tools and the
+API: it joins entity states to their area and floor, narrows them to the
+exposed set, resolves friendly names to entity IDs, and caches everything.
+`HomeAssistantClient` underneath is a thin, cache-free wrapper around the HA
+REST API. Areas, floors and hidden entities have no REST endpoint, so they
+come from a single `/api/template` Jinja render.
+
+### Only what you exposed
+
+`/api/states` on a real installation is a wall of firmware-update notices,
+signal-strength sensors and diagnostic switches. So the server scopes itself
+to the entities you picked in **Settings → Voice assistants → Expose**, read
+over the WebSocket API (`homeassistant/expose_entity/list` — there is no REST
+equivalent, and it requires a token belonging to an admin user).
+
+If that list can't be read, the server falls back to Home Assistant's own
+default-exposure rules — lights, switches, covers, climate, media players and
+the handful of sensor device classes HA itself exposes by default — and says
+so in `list_areas`. A filter narrow enough to match nothing exposed (say
+`domain: "automation"`) widens automatically, so nothing is unreachable.
+
+### Caching
+
+The Durable Object outlives a tool call, so a multi-tool turn costs one
+request to Home Assistant rather than one per tool: states are cached for
+3 seconds and invalidated the moment a service call changes something, while
+the area registry and the Expose list are cached for 10 minutes.
 
 ## Tools
 
 | Tool | Description |
 |---|---|
-| `get_entities` | List entity states, optionally filtered by domain |
-| `get_entity_state` | Full state and attributes for one entity |
-| `call_service` | Call any HA service (`light.turn_on`, `lock.lock`, ...) |
-| `list_areas` | List configured areas (rooms) |
-| `get_entities_by_area` | Entity IDs belonging to an area |
-| `list_automations` | Automations with state and last-triggered time |
-| `trigger_automation` | Trigger an automation, bypassing conditions |
-| `list_scripts` | Scripts with their running state |
-| `run_script` | Run a script |
-| `get_entity_history` | Recent state history for an entity |
+| `get_entities` | Exposed entities grouped by area, filtered by domain / area / search / state |
+| `get_entity_state` | Full state and attributes for up to 20 entities at once |
+| `call_service` | Call any HA service (`light.turn_on`, `climate.set_temperature`, ...) |
+| `activate` | Trigger an automation, run a script, apply a scene, press a button |
+| `list_areas` | Areas with their floor and entity counts |
+| `get_history` | Time spent in each state plus the changes, for up to 10 entities |
 | `phone_list_capabilities` | List commands sendable to the HA mobile app |
 | `phone_send_command` | Send a command (e.g. DND toggle) to a phone |
+
+`get_entities` returns lines like:
+
+```
+## Kitchen — Ground
+light.kitchen_ceiling | Kitchen Ceiling | on | brightness=71%
+sensor.kitchen_temp | Kitchen Temperature | 21.4 °C
+```
+
+Anything taking an entity — `get_entity_state`, `call_service`'s
+`entity_id`, `activate`, `get_history` — accepts `"kitchen ceiling"` just as
+well as `light.kitchen_ceiling`, and answers an ambiguous name with the
+candidates rather than a guess.
 
 ## Setup
 
@@ -48,9 +86,11 @@ npm install
 ```
 
 `HA_URL` is set in `wrangler.jsonc` under `vars` — point it at your own Home
-Assistant instance before deploying.
+Assistant instance before deploying. `HA_ASSISTANT` is optional and names the
+assistant whose Expose list to use; it defaults to `conversation`.
 
-`HA_TOKEN` (a long-lived access token from HA) is read from Cloudflare's
+`HA_TOKEN` (a long-lived access token from HA, belonging to an **admin**
+user so the Expose list is readable) is read from Cloudflare's
 [Secrets Store](https://developers.cloudflare.com/secrets-store/), not a
 plain Wrangler secret. Create it once per account and it's reusable across
 Workers:
@@ -74,12 +114,13 @@ For local dev, create a local-only secret with the same name (omit
 ## Development
 
 ```bash
-npm run dev         # wrangler dev
+npm run dev          # wrangler dev
 npm test             # vitest run
 npm run test:watch   # vitest watch mode
+npm run typecheck    # tsc --noEmit
 ```
 
-Tests cover `HomeAssistantClient` by mocking `fetch` — no live Home
+Tests mock `fetch` — including the WebSocket handshake — so no live Home
 Assistant instance is required to run them.
 
 ## Deploy
